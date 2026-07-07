@@ -3,7 +3,9 @@
 One-shot build briefs for three showcase demos. Each scope is a self-contained
 Markdown file: open a fresh Claude Code session (Fable 5), point it at the file,
 and work through it top to bottom. The scopes assume **no** shared context:
-every constraint, guardrail, and acceptance test is in the file itself.
+every constraint, guardrail, engineering standard, and acceptance test is in
+the file itself. Each scope's "Engineering standards" and "Copy rules" sections
+encode how this team builds and writes — treat them as binding, not flavor text.
 
 | Scope | Demo | Core Qdrant story |
 |---|---|---|

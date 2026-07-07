@@ -29,12 +29,19 @@ from both a desktop browser and a phone that isn't yours.
 
 ## How to work (instructions for the building agent)
 
-1. Work through the phases in order; pass each gate before continuing.
+1. Work through the phases in order; pass each gate before continuing. The
+   "What NOT to build" section is binding: the demo is judged on stage impact
+   and legibility, not feature count.
 2. Verify Qdrant request syntax against the linked docs before coding each
    query. Verified as of 2026-07: formula queries v1.14+ (`$score`,
    `exp_decay`), multitenancy via keyword payload index with `is_tenant: true`.
-   Docs: https://qdrant.tech/documentation/guides/multitenancy/ and
-   https://qdrant.tech/documentation/concepts/hybrid-queries/
+   Docs (markdown mirror, fetch these directly):
+   - https://skills.qdrant.tech/md/documentation/manage-data/multitenancy/
+   - https://skills.qdrant.tech/md/documentation/search/hybrid-queries/
+   - https://skills.qdrant.tech/md/documentation/search/search-relevance/
+   Any qdrant.tech docs page has a markdown twin at
+   `skills.qdrant.tech/md/<same path>`; prefer the mirror whenever you read
+   docs.
 3. Use executive judgment. This brief exists to produce a great demo that
    showcases Qdrant, not to enforce every literal implementation detail. If a
    detail blocks stage impact, make the smallest sensible decision, document it
@@ -49,17 +56,52 @@ from both a desktop browser and a phone that isn't yours.
    README, make any progress that does not depend on it, and do not invent a
    weaker substitute that breaks the demo story.
 
-## House rules
+## Engineering standards (binding, like "What NOT to build")
 
-- Qdrant is a **vector search engine**. Use that exact category in any UI copy,
-  README, code comment, or commit in this project.
-- This scope is a brief, not a contract. Make executive decisions when a detail
-  gets in the way of a better demo, document the decision, and keep the Qdrant
-  story intact.
-- The acceptance bar is completion. Work through all phases, run the gates and
-  evals, and deploy or publish as far as access allows.
-- Respect the "What NOT to build" section. The demo is judged on stage impact and
-  legibility, not feature count.
+How this team builds. The published repo is judged on these as much as on
+features.
+
+**Build the minimum that works.** Before adding anything, stop at the first
+rung that holds: (1) does it need to exist at all — speculative need means skip
+it; (2) does the stdlib or a native platform feature cover it (CSS over JS, a
+`<input type>` over a picker lib, a DB constraint over app code); (3) does an
+already-installed dependency cover it; (4) can it be one line. Only then write
+the minimum that works. Never add a dependency for what a few lines do, and
+check what a library drags in before adopting it — a package that pulls half
+the internet of transitive dependencies is a defect in itself.
+
+**No speculative structure.** No abstraction with one implementation, no
+factory for one product, no config for a value that never changes, no
+scaffolding "for later," no layer with one caller. Fewest files that work.
+Deletion beats addition; boring beats clever.
+
+**Understand before you build.** Lean means less code, not less reading. Trace
+the real flow end to end before picking the small solution. Fix bugs at the
+root cause — the shared function every caller routes through — not at the
+symptom one report named.
+
+**The code will be read as a Qdrant reference. Write it that way.**
+- Correct parameters, not just correct calls: trace what each parameter does to
+  the output. A prefetch limit that silently drops candidates is a bug even
+  though the call succeeds.
+- Prefer the idiomatic Qdrant primitive over a hand-rolled equivalent; check
+  the docs for a built-in before building your own.
+- No wasted work: no redundant round trips, don't re-fetch what a previous
+  call already returned.
+- Readable over compact: no dense nested one-liners, no cryptic names.
+- Mark a deliberate shortcut with a comment naming its ceiling and the upgrade
+  path (e.g. `// shortcut: template library keyed on top-2 deviating blocks;
+  extend if new motifs need finer wording`).
+
+**Measure before you claim.** A feature is not done until an eval or gate shows
+it works; "it ran end to end" is not a result. Verify every Qdrant product fact
+(versions, parameters, defaults, behavior) against the linked docs before
+writing it into code, README, or UI copy — never from memory.
+
+**Hygiene is part of done.** No broken links (check them). No oversized images
+— resize before committing; a 4000-px screenshot in a README wastes traffic and
+slows the page. Pinned dependencies. A clean-clone setup that actually works.
+Commit messages: subject-only, imperative, 5–10 words.
 
 ## Prerequisites
 
@@ -240,20 +282,34 @@ unindexed segments are scanned exactly as advertised, no refresh cycle exists.
 
 ## Eval plan (runnable scripts in `evals/`)
 
-1. **Motif detection:** seeded run of 5k events containing 60 labeled frauds
+1. **API-contract suite (write each test the same day you first use the
+   feature):** one small test per recent Qdrant feature this demo leans on —
+   the `is_tenant: true` keyword index, formula rescoring over a Euclidean
+   prefetch (the sign/order handling is the classic mistake here),
+   timestamp-filtered scroll, idempotent upserts by deterministic ID. Each
+   test runs against a throwaway collection with ~100 synthetic points and
+   asserts **behavior, not absence of errors**: recompute the expected result
+   client-side (e.g., the recency-adjusted score for five known points) and
+   compare, because a server may silently ignore an unknown field. Include one
+   canary test that sends a deliberately misspelled parameter and asserts the
+   request is rejected; if it isn't, silent acceptance is a live failure mode
+   and every other test must assert on values. Build requests through the
+   client's typed models (Pydantic / TypeScript types), never raw dicts, so a
+   hallucinated field name fails at construction time.
+2. **Motif detection:** seeded run of 5k events containing 60 labeled frauds
    (20 per motif). Recall ≥ 0.8, precision ≥ 0.6 at the shipped threshold.
    Report the confusion table in the README honestly; do not claim a
    fraud-detection rate this demo hasn't measured.
-2. **Cold start:** zero alerts fired inside any tenant's 30-event learning
+3. **Cold start:** zero alerts fired inside any tenant's 30-event learning
    window across the seeded run.
-3. **Determinism:** two runs with the same world seed produce identical alert
+4. **Determinism:** two runs with the same world seed produce identical alert
    sets.
-4. **Latency:** p95 launch→first-score→flare < 1 s measured end to end from a
+5. **Latency:** p95 launch→first-score→flare < 1 s measured end to end from a
    desktop browser and a phone on conference-grade wifi (throttle to simulate).
-5. **Tenant isolation:** an event scored against the wrong tenant's baseline
+6. **Tenant isolation:** an event scored against the wrong tenant's baseline
    (deliberate test) produces a different score: proves the filter is doing
    the work.
-6. **Public browser smoke:** production Vercel URL works from a clean browser
+7. **Public browser smoke:** production Vercel URL works from a clean browser
    profile with no local services, no camera permission, and no preloaded state.
 
 ## What NOT to build
@@ -292,10 +348,14 @@ unindexed segments are scanned exactly as advertised, no refresh cycle exists.
 
 ## Copy rules for everything public (README, UI, captions)
 
-- Qdrant is a **vector search engine**. Use that exact category.
+- Qdrant is a **vector search engine**. Use that exact category everywhere:
+  UI copy, README, code comments, commit messages.
 - Problem first, numbers over adjectives. Never use: seamless, powerful,
   robust, cutting-edge, or vague "AI magic" claims.
 - No em dashes in public copy. Active voice. Title Case for headings and
   buttons. American English, Oxford comma. Contractions are fine.
 - Never overstate: this is a demo of the retrieval mechanics, not a claim
   about production fraud models. The README says so explicitly.
+- State each point once. No recap sections, no item-by-item narration of
+  results, no coined terms the Qdrant docs don't already use. One idea per
+  sentence. If a draft runs long, cut it — don't pad it.

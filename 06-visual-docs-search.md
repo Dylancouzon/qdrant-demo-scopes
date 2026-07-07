@@ -32,11 +32,15 @@ published to `qdrant-labs`, all evals passing, hero moment reproducible.
 
 ## How to work (instructions for the building agent)
 
-1. Work through the phases in order; pass each gate before continuing.
+1. Work through the phases in order; pass each gate before continuing. The
+   "What NOT to build" section is binding: the demo is judged on stage impact
+   and legibility, not feature count.
 2. Verify Qdrant syntax against the linked docs before coding each query.
-   Key references:
-   - Multivectors + MaxSim: https://qdrant.tech/documentation/concepts/vectors/
-   - Quantization + rescoring: https://qdrant.tech/documentation/guides/quantization/
+   Key references (markdown mirror, fetch these directly; any qdrant.tech docs
+   page has a markdown twin at `skills.qdrant.tech/md/<same path>` — prefer
+   the mirror whenever you read docs):
+   - Multivectors + MaxSim: https://skills.qdrant.tech/md/documentation/manage-data/vectors/
+   - Quantization + rescoring: https://skills.qdrant.tech/md/documentation/manage-data/quantization/
    - Qdrant's optimized ColPali pattern (pooled prefetch + multivector
      rescore): search qdrant.tech for the "PDF retrieval at scale" tutorial and
      check github.com/qdrant/demo-colpali-optimized. If both exist, mirror
@@ -57,17 +61,52 @@ published to `qdrant-labs`, all evals passing, hero moment reproducible.
    README, make any progress that does not depend on it, and do not invent a
    weaker substitute that breaks the demo story.
 
-## House rules
+## Engineering standards (binding, like "What NOT to build")
 
-- Qdrant is a **vector search engine**. Use that exact category in any UI copy,
-  README, code comment, or commit in this project.
-- This scope is a brief, not a contract. Make executive decisions when a detail
-  gets in the way of a better demo, document the decision, and keep the Qdrant
-  story intact.
-- The acceptance bar is completion. Work through all phases, run the gates and
-  evals, and deploy or publish as far as access allows.
-- Respect the "What NOT to build" section. The demo is judged on stage impact and
-  legibility, not feature count.
+How this team builds. The published repo is judged on these as much as on
+features.
+
+**Build the minimum that works.** Before adding anything, stop at the first
+rung that holds: (1) does it need to exist at all — speculative need means skip
+it; (2) does the stdlib or a native platform feature cover it (CSS over JS, a
+`<input type>` over a picker lib, a DB constraint over app code); (3) does an
+already-installed dependency cover it; (4) can it be one line. Only then write
+the minimum that works. Never add a dependency for what a few lines do, and
+check what a library drags in before adopting it — a package that pulls half
+the internet of transitive dependencies is a defect in itself.
+
+**No speculative structure.** No abstraction with one implementation, no
+factory for one product, no config for a value that never changes, no
+scaffolding "for later," no layer with one caller. Fewest files that work.
+Deletion beats addition; boring beats clever.
+
+**Understand before you build.** Lean means less code, not less reading. Trace
+the real flow end to end before picking the small solution. Fix bugs at the
+root cause — the shared function every caller routes through — not at the
+symptom one report named.
+
+**The code will be read as a Qdrant reference. Write it that way.**
+- Correct parameters, not just correct calls: trace what each parameter does to
+  the output. A prefetch limit that silently drops candidates is a bug even
+  though the call succeeds.
+- Prefer the idiomatic Qdrant primitive over a hand-rolled equivalent; check
+  the docs for a built-in before building your own.
+- No wasted work: no redundant round trips, don't re-embed or re-fetch what a
+  previous step already produced.
+- Readable over compact: no dense nested one-liners, no cryptic names.
+- Mark a deliberate shortcut with a comment naming its ceiling and the upgrade
+  path (e.g. `# shortcut: sequential page rendering, fine at 20k pages;
+  parallelize if the corpus grows`).
+
+**Measure before you claim.** A feature is not done until an eval or gate shows
+it works; "it ran end to end" is not a result. Verify every Qdrant product fact
+(versions, parameters, defaults, behavior) against the linked docs before
+writing it into code, README, or UI copy — never from memory.
+
+**Hygiene is part of done.** No broken links (check them). No oversized images
+— resize before committing; a 4000-px screenshot in a README wastes traffic and
+slows the page. Pinned dependencies. A clean-clone setup that actually works.
+Commit messages: subject-only, imperative, 5–10 words.
 
 ## Prerequisites
 
@@ -179,18 +218,32 @@ so the audience can see which part Qdrant accelerates.
 
 ## Eval plan (runnable scripts in `evals/`)
 
-1. **Golden retrieval set:** 25 queries authored after Phase 2 by sampling
+1. **API-contract suite (write each test the same day you first use the
+   feature):** one small test per recent Qdrant feature this demo leans on —
+   multivector config with the MaxSim comparator, HNSW disabled via `m: 0`,
+   binary quantization plus `rescore`/`oversampling` search params, named
+   vectors (`pooled` + `patches`) on one point. Each test runs against a
+   throwaway collection with ~100 synthetic points and asserts **behavior, not
+   absence of errors**: recompute the expected result client-side (e.g., MaxSim
+   over five known multivectors in NumPy) and compare, because a server may
+   silently ignore an unknown field. Include one canary test that sends a
+   deliberately misspelled parameter and asserts the request is rejected; if it
+   isn't, silent acceptance is a live failure mode and every other test must
+   assert on values. Build requests through the client's typed models
+   (Pydantic), never raw dicts, so a hallucinated field name fails at
+   construction time.
+2. **Golden retrieval set:** 25 queries authored after Phase 2 by sampling
    real pages (at least 8 targeting handwriting or stamps): target page in
    top 5 for ≥ 80%.
-2. **OCR shootout:** same 25 queries against the baseline; report both hit
+3. **OCR shootout:** same 25 queries against the baseline; report both hit
    rates as a table in the README. Expect the baseline to win on clean
    typewritten text sometimes: report that honestly; the story is the
    handwriting subset.
-3. **Quantization fidelity:** top-5 overlap between binary-quantized+rescored
+4. **Quantization fidelity:** top-5 overlap between binary-quantized+rescored
    and a full-precision control run ≥ 90% across the golden set.
-4. **Latency:** p95 < 2.5 s end to end on the demo laptop (encode + prefetch +
+5. **Latency:** p95 < 2.5 s end to end on the demo laptop (encode + prefetch +
    rescore); report the split.
-5. **Cold boot:** `make run` from a clean clone (models cached) to a working
+6. **Cold boot:** `make run` from a clean clone (models cached) to a working
    query in < 5 minutes.
 
 ## What NOT to build
@@ -226,10 +279,14 @@ so the audience can see which part Qdrant accelerates.
 
 ## Copy rules for everything public (README, UI, captions)
 
-- Qdrant is a **vector search engine**. Use that exact category.
+- Qdrant is a **vector search engine**. Use that exact category everywhere:
+  UI copy, README, code comments, commit messages.
 - Problem first, numbers over adjectives; every number on screen must be
   measured by this repo. Never use: seamless, powerful, robust, cutting-edge.
 - No em dashes in public copy. Active voice. Title Case for headings and
   buttons. American English, Oxford comma. Contractions are fine.
 - The corpus is a public records archive: never present it as real insurance
   or medical data.
+- State each point once. No recap sections, no item-by-item narration of
+  results, no coined terms the Qdrant docs don't already use. One idea per
+  sentence. If a draft runs long, cut it — don't pad it.

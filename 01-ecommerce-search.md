@@ -36,7 +36,13 @@ end to end.
    query.** This brief pins the architecture; exact field names in the Query API
    evolve. Verified as of 2026-07: formula queries (v1.14+, `$score`,
    `exp_decay`, `mult`, `sum`), weighted RRF (v1.17+).
-   Docs: https://qdrant.tech/documentation/concepts/hybrid-queries/
+   Docs (markdown mirror, fetch these directly):
+   - https://skills.qdrant.tech/md/documentation/search/hybrid-queries/
+   - https://skills.qdrant.tech/md/documentation/search/search-relevance/
+   - https://skills.qdrant.tech/md/documentation/inference/cloud-inference/
+   Any qdrant.tech docs page has a markdown twin at
+   `skills.qdrant.tech/md/<same path>`; prefer the mirror whenever you read
+   docs.
 3. Use executive judgment. This brief exists to produce a great demo that
    showcases Qdrant, not to enforce every literal implementation detail. If a
    detail blocks stage impact, make the smallest sensible decision, document it
@@ -45,22 +51,58 @@ end to end.
    gates and evals, deploy or publish as far as access allows, and do not stop at
    a prototype unless an external access blocker makes completion impossible.
 5. Keep it lean. One Next.js app, Python scripts for ingest, Qdrant as the only
-   backend. The "What NOT to build" section is binding.
+   backend. The "What NOT to build" section is binding: the demo is judged on
+   stage impact and legibility, not feature count.
 6. If an access item under Prerequisites is missing, document the blocker in the
    README, make any progress that does not depend on it, and do not invent a
    weaker substitute that breaks the demo story.
 
-## House rules
+## Engineering standards (binding, like "What NOT to build")
 
-- Qdrant is a **vector search engine**. Use that exact category in any UI copy,
-  README, code comment, or commit in this project.
-- This scope is a brief, not a contract. Make executive decisions when a detail
-  gets in the way of a better demo, document the decision, and keep the Qdrant
-  story intact.
-- The acceptance bar is completion. Work through all phases, run the gates and
-  evals, and deploy or publish as far as access allows.
-- Respect the "What NOT to build" section. The demo is judged on stage impact and
-  legibility, not feature count.
+How this team builds. The published repo is judged on these as much as on
+features.
+
+**Build the minimum that works.** Before adding anything, stop at the first
+rung that holds: (1) does it need to exist at all — speculative need means skip
+it; (2) does the stdlib or a native platform feature cover it (CSS over JS, a
+`<input type>` over a picker lib, a DB constraint over app code); (3) does an
+already-installed dependency cover it; (4) can it be one line. Only then write
+the minimum that works. Never add a dependency for what a few lines do, and
+check what a library drags in before adopting it — a package that pulls half
+the internet of transitive dependencies is a defect in itself.
+
+**No speculative structure.** No abstraction with one implementation, no
+factory for one product, no config for a value that never changes, no
+scaffolding "for later," no layer with one caller. Fewest files that work.
+Deletion beats addition; boring beats clever.
+
+**Understand before you build.** Lean means less code, not less reading. Trace
+the real flow end to end before picking the small solution. Fix bugs at the
+root cause — the shared function every caller routes through — not at the
+symptom one report named.
+
+**The code will be read as a Qdrant reference. Write it that way.**
+- Correct parameters, not just correct calls: trace what each parameter does to
+  the output. A prefetch limit that silently drops candidates is a bug even
+  though the call succeeds.
+- Prefer the idiomatic Qdrant primitive over a hand-rolled equivalent; check
+  the docs for a built-in before building your own.
+- No wasted work: no redundant round trips, don't re-fetch what a previous
+  call already returned.
+- Readable over compact: no dense nested one-liners, no cryptic names.
+- Mark a deliberate shortcut with a comment naming its ceiling and the upgrade
+  path (e.g. `// shortcut: in-memory cache, fine for demo scale; move to
+  payload index if the catalog grows`).
+
+**Measure before you claim.** A feature is not done until an eval or gate shows
+it works; "it ran end to end" is not a result. Verify every Qdrant product fact
+(versions, parameters, defaults, behavior) against the linked docs before
+writing it into code, README, or UI copy — never from memory.
+
+**Hygiene is part of done.** No broken links (check them). No oversized images
+— resize before committing; a 4000-px screenshot in a README wastes traffic and
+slows the page. Pinned dependencies. A clean-clone setup that actually works.
+Commit messages: subject-only, imperative, 5–10 words.
 
 ## Prerequisites
 
@@ -80,7 +122,7 @@ end to end.
 | Catalog | Amazon Reviews 2023, **Clothing, Shoes & Jewelry** item metadata, 2M+ items | Image-rich, seasonal merchandising ("winter stock") reads naturally |
 | Dense vectors | 384-d text model available in **both** FastEmbed and Cloud Inference (prefer `sentence-transformers/all-MiniLM-L6-v2`; confirm in the cluster's Inference tab) | Bulk ingest embeds locally (free, fast); **query-time text embeds in-cluster via Cloud Inference** so the serving path shows Qdrant doing the embedding |
 | Sparse vectors | miniCOIL (`Qdrant/minicoil-v1` in FastEmbed) | Hybrid branch; term-aware sparse scoring |
-| Image vectors | CLIP, **200k flagship subset only** (the items the demo script visits + top-rated per category) | "Visually similar" shelf wows; embedding all 2M images costs days and ~100 GB egress for no extra stage value |
+| Image vectors | CLIP, **50k flagship subset only** (the items the demo script visits + top-rated per category) | "Visually similar" shelf wows; image download + embedding is the flakiest pipeline in this build, and the demo script only visits a handful of categories. 50k fills the shelf; going bigger buys pain, not stage value |
 | Quantization | Scalar int8, originals on disk | The 4 GB node is the first target; scale up only if measured RAM, payload indexes, sparse vectors, or CLIP vectors require it |
 | Margin / stock | **Synthesized deterministically** (seeded by item ID) | Not in any public dataset. Seeded → re-ingest reproduces identical values |
 | Personas | 6 shopper personas, checked in as `fixtures/personas.json` (purchase history ASINs, returns, taste vector = mean of purchased items' dense vectors) | Demo boots from fixtures, identical every run |
@@ -118,7 +160,7 @@ Payload indexes: `category` (keyword), `brand` (keyword), `price` (float),
 ## Qdrant design
 
 One collection, named vectors: `dense` (384-d, int8 scalar quantization,
-originals on disk), `clip` (512-d, only on the 200k subset), sparse `minicoil`.
+originals on disk), `clip` (512-d, only on the 50k subset), sparse `minicoil`.
 
 **Shelf query (the core request), one ranked-shelf round trip:**
 
@@ -208,43 +250,70 @@ unknown fields.
 
 ## Build phases and gates
 
+The full ingest is a background job, not a blocker. After Phase 2 kicks it
+off, every app phase builds against the smoke corpus while the 2M ingest runs
+(overnight is expected); the full-scale gate moves to Phase 8. A partial-scale
+demo that works end to end beats a full-scale ingest with no app around it.
+
 - **Phase 0: access check.** Create the cluster; confirm in the console
   Inference tab which dense + sparse models exist; record choices in `.env`.
   Gate: a scripted upsert + query with a Cloud Inference `Document` succeeds.
 - **Phase 1: schema + smoke ingest.** Collection, indexes, ingest script with
-  `--limit`. Gate: 5k items in, hybrid shelf query returns visually sane
+  `--limit`. Gate: 100k items in, hybrid shelf query returns visually sane
   results.
-- **Phase 2: full ingest.** 2M+ items, batched (256), checkpointed and
-  resumable, embeddings via local FastEmbed. Gate: point count ≥ 2M, p95 shelf
-  query < 150 ms server-side, cluster RAM below 80%. If the gate fails because
-  the starting cluster is too small, scale the cluster once, rerun the gate, and
-  record both measurements in the README.
-- **Phase 3: CLIP subset.** Select 200k flagship items, download images with
+- **Phase 2: kick off the full ingest.** 2M+ items, batched (256), checkpointed
+  and resumable, embeddings via local FastEmbed. Gate to continue: kill the
+  ingest mid-run and resume it; the checkpoint restarts cleanly with no
+  duplicated or skipped items. Then leave it running in the background (or
+  overnight) and move on. Phases 3–6 build against whatever is ingested so far.
+- **Phase 3: storefront UI.** Gate: shelf queries look right on the smoke
+  corpus; latency chip live.
+- **Phase 4: merchandiser desk + formula builder.** Gate: builder unit tests
+  pass; the hero preset reorders the shelf end to end.
+- **Phase 5: product pages + Recommend shelves.** Gate: recommend smoke tests.
+- **Phase 6: auto-play.** Gate: 5-minute unattended run, no errors, fallback
+  mode works with the network throttled.
+- **Phase 7: CLIP subset.** Needs the full ingest finished (flagship selection
+  spans the whole catalog). Select 50k flagship items, download images with
   retry + dead-link skip, embed, update points. Gate: visually-similar shelf
   returns same-garment-style items for 10 spot checks.
-- **Phase 4: storefront UI.** Gate: golden queries (eval set) look right;
-  latency chip live.
-- **Phase 5: merchandiser desk + formula builder.** Gate: builder unit tests
-  pass; the hero preset reorders the shelf end to end.
-- **Phase 6: product pages + Recommend shelves.** Gate: recommend smoke tests.
-- **Phase 7: auto-play.** Gate: 5-minute unattended run, no errors, fallback
-  mode works with the network throttled.
-- **Phase 8: evals, deploy, publish.** Gate: full eval suite green on the
-  Vercel deployment, then publish to `qdrant-labs`.
+- **Phase 8: scale gate, evals, deploy, publish.** Scale gate: point count
+  ≥ 2M, p95 shelf query < 150 ms server-side, cluster RAM below 80%. If it
+  fails because the starting cluster is too small, scale the cluster once,
+  rerun, and record both measurements in the README. Then: full eval suite
+  green on the Vercel deployment, publish to `qdrant-labs`.
 
 ## Eval plan (write these as runnable scripts in `evals/`)
 
-1. **Golden queries** (~30, checked in as JSON): query → ASINs expected in
-   top 10. Pass ≥ 80%. Author them after Phase 2 by browsing real data.
-2. **Persona differentiation:** same query, two personas → Spearman rank
+1. **API-contract suite (write each test the same day you first use the
+   feature):** one small test per recent Qdrant feature this demo leans on —
+   weighted RRF, formula queries (`$score`, `exp_decay`, `defaults`), Cloud
+   Inference `Document` objects, Recommend with `strategy: best_score`, facet
+   counts. Each test runs against a throwaway collection with ~100 synthetic
+   points and asserts **behavior, not absence of errors**: recompute the
+   expected result client-side (e.g., the formula score for five known points)
+   and compare, because a server may silently ignore an unknown field. Include
+   one canary test that sends a deliberately misspelled parameter and asserts
+   the request is rejected; if it isn't, silent acceptance is a live failure
+   mode and every other test must assert on values. Build requests through the
+   client's typed models (Pydantic / TypeScript types), never raw dicts, so a
+   hallucinated field name fails at construction time.
+2. **Golden queries** (~30, checked in as JSON): query → ASINs expected in
+   top 10. Pass ≥ 80%. Author them once the full ingest lands, by browsing
+   real data. Timebox authoring: a query whose expected items you can't verify
+   by eye in a couple of minutes gets replaced, not debugged. If the suite
+   plateaus below 80% after two tuning passes (RRF weights, formula weights,
+   nothing else), freeze it, report the measured number honestly in the
+   README, and move on.
+3. **Persona differentiation:** same query, two personas → Spearman rank
    correlation of top 50 < 0.7. Proves the taste branch does something.
-3. **Formula builder suite:** preset fixtures → expected formula JSON;
+4. **Formula builder suite:** preset fixtures → expected formula JSON;
    out-of-range weights clamped; unknown fields rejected.
-4. **Latency budget:** p95 < 150 ms server-side per shelf at full scale,
+5. **Latency budget:** p95 < 150 ms server-side per shelf at full scale,
    measured from the Vercel region.
-5. **Facet correctness:** counts under an active filter match a scroll-based
+6. **Facet correctness:** counts under an active filter match a scroll-based
    recount on three spot checks.
-6. **Stage rehearsal checklist:** scripted walkthrough of the demo script
+7. **Stage rehearsal checklist:** scripted walkthrough of the demo script
    below; every step must succeed twice in a row.
 
 ## What NOT to build
@@ -252,7 +321,7 @@ unknown fields.
 - No auth, no user accounts, no cart/checkout, no CMS.
 - No database other than Qdrant. Personas and golden sets are JSON fixtures.
 - No reranker service, no embedding microservice, no queue. Ingest is a script.
-- No image vectors beyond the 200k subset (document full-catalog CLIP as a
+- No image vectors beyond the 50k subset (document full-catalog CLIP as a
   scale-up path in the README instead).
 - Don't chase exotic UI state management; React state + URL params suffice.
 
@@ -276,9 +345,13 @@ unknown fields.
 
 ## Copy rules for everything public (README, UI, captions)
 
-- Qdrant is a **vector search engine**. Use that exact category.
+- Qdrant is a **vector search engine**. Use that exact category everywhere:
+  UI copy, README, code comments, commit messages.
 - Problem first, numbers over adjectives ("one request, 38 ms" beats vague
   speed claims). Never use: seamless, powerful, robust, cutting-edge.
 - No em dashes in public copy. Active voice. Title Case for headings and
   buttons. American English, Oxford comma. Contractions are fine.
 - Don't claim benchmark numbers you didn't measure in this repo.
+- State each point once. No recap sections, no item-by-item narration of
+  results, no coined terms the Qdrant docs don't already use. One idea per
+  sentence. If a draft runs long, cut it — don't pad it.
