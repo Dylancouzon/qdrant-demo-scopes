@@ -43,9 +43,12 @@ published to `qdrant-labs`, all evals passing, hero moment reproducible.
    - Quantization + rescoring: https://skills.qdrant.tech/md/documentation/manage-data/quantization/
    - Qdrant's optimized ColPali pattern (pooled prefetch + multivector
      rescore): search qdrant.tech for the "PDF retrieval at scale" tutorial and
-     check github.com/qdrant/demo-colpali-optimized. If both exist, mirror
-     their storage layout; if not, implement the pattern as specified in this
-     file.
+     check github.com/qdrant/demo-colpali-optimized, as reference for the
+     pattern only. The storage layout in this file wins: a single mean-pooled
+     vector for the prefetch stage (the official demo pools rows and columns
+     into extra multivectors). If the golden-set gate misses because
+     first-stage recall is too weak, adopting the row/column pooling from the
+     official demo is the sanctioned fix.
 3. Model note: prefer the strongest **permissively licensed** ColPali-family
    checkpoint. Start from `vidore/colqwen2-v1.0` (colpali-engine); check the
    ViDoRe leaderboard for a newer permissive option before committing. Record

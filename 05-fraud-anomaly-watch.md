@@ -124,6 +124,10 @@ Commit messages: subject-only, imperative, 5–10 words.
 | Recency | Formula query with `exp_decay` on the timestamp when retrieving neighbors, with Euclidean scores handled explicitly | Stale behavior fades from "normal" without inverting closest-neighbor order |
 | Stack | Next.js (App Router) + shadcn/ui; a small `scripts/seed.ts` for baselines | One repo, one deploy, one public URL |
 
+Pin the Vercel function region to the Qdrant cluster's region. Every scored
+event costs three Qdrant round trips (context scroll, kNN, upsert), so
+cross-region RTT alone can eat the < 1 s flare budget.
+
 ## The synthetic world
 
 - **200 tenants** (customers), each with a seeded behavior profile: home geo,
@@ -232,7 +236,10 @@ values (written back so the wall and evidence panel can replay).
 Every event: vectorize → query k = 10 with `filter: tenant_id` (+ recency
 formula) → score → upsert with score in payload → emit to the wall. Attack cards
 may generate one event (Geo-Hop) or a short burst of 3-6 events (Card Testing
-Burst, Amount Ladder). Note on stage: points are searchable immediately; small
+Burst, Amount Ladder). Score and upsert burst events strictly in sequence:
+event N must be upserted before event N+1 is scored, or the recent-history
+features (`same_merchant_10m_count`, `ladder_step_ratio`) never see the burst
+forming and the motifs go undetected. Note on stage: points are searchable immediately; small
 unindexed segments are scanned exactly as advertised, no refresh cycle exists.
 
 ## UI
@@ -254,7 +261,9 @@ unindexed segments are scanned exactly as advertised, no refresh cycle exists.
   three attack cards:
   **Geo-Hop**, **Card Testing Burst**, and **Amount Ladder**. One tap launches
   the chosen deterministic sequence. The response shows the attack's live status,
-  the highest score, and a short "watch the wall" cue.
+  the highest score, a short "watch the wall" cue, and — once the sequence
+  scores — a deep link to `/alert/[id]` for its highest-scoring event, so the
+  attacker's own phone shows the evidence panel for the fraud they launched.
 - **Online mode:** if no projected wall is open, the launch page opens a compact
   embedded wall strip after launch so the public demo still makes sense from a
   single browser tab.
@@ -300,8 +309,11 @@ unindexed segments are scanned exactly as advertised, no refresh cycle exists.
    (20 per motif). Recall ≥ 0.8, precision ≥ 0.6 at the shipped threshold.
    Report the confusion table in the README honestly; do not claim a
    fraud-detection rate this demo hasn't measured.
-3. **Cold start:** zero alerts fired inside any tenant's 30-event learning
-   window across the seeded run.
+3. **Cold start:** create one fresh unseeded tenant, stream 50
+   profile-conforming events at it, assert zero alerts inside its 30-event
+   learning window and normal scoring after. The 200 seeded tenants never
+   exercise this rule (they start with 300+ baseline points), so a seeded-run
+   check passes vacuously.
 4. **Determinism:** two runs with the same world seed produce identical alert
    sets.
 5. **Latency:** p95 launch→first-score→flare < 1 s measured end to end from a
@@ -333,7 +345,8 @@ unindexed segments are scanned exactly as advertised, no refresh cycle exists.
 3. Click the alert: baseline scatter, neighbor distances, the division that
    produced the score.
 4. Hero: share the launch link or show the QR. Persona assigned, attack card
-   launched, flare before the phone drops.
+   launched, flare before the phone drops. Then the phone opens the evidence
+   panel for that very attack.
 5. Mention: every event was searchable the instant it landed, one collection,
    200 tenants, one baseline each.
 

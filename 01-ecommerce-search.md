@@ -126,7 +126,7 @@ Commit messages: subject-only, imperative, 5–10 words.
 | Quantization | Scalar int8, originals on disk | The 4 GB node is the first target; scale up only if measured RAM, payload indexes, sparse vectors, or CLIP vectors require it |
 | Margin / stock | **Synthesized deterministically** (seeded by item ID) | Not in any public dataset. Seeded → re-ingest reproduces identical values |
 | Personas | 6 shopper personas, checked in as `fixtures/personas.json` (purchase history ASINs, returns, taste vector = mean of purchased items' dense vectors) | Demo boots from fixtures, identical every run |
-| Merchandiser formulas | Campaign presets + sliders → a small server-side **formula builder** (whitelisted fields and ops, weights clamped) → Qdrant formula JSON, always displayed as live code | The formula is data: inspectable on screen, unit-testable, and every shelf request stays a single Qdrant call |
+| Merchandiser formulas | One **fixed formula template** (six whitelisted fields, each behind a clamped weight, plus the stock gate); presets are named weight-sets, sliders set weights, all substituted server-side into Qdrant formula JSON that is always displayed as live code | Every knob in the demo changes numbers, not formula shape, so validation is clamping six floats — and every shelf request stays a single Qdrant call |
 | Auto-play | Scripted sequence (search → click → preset flip) with pre-written captions | Runs unattended on a booth screen |
 | Stack | Next.js (App Router) + shadcn/ui on Vercel; Python + `uv` for ingest scripts | Ingest never runs on Vercel |
 
@@ -207,13 +207,19 @@ originals on disk), `clip` (512-d, only on the 50k subset), sparse `minicoil`.
 }
 ```
 
-The `w_*` values come from the merchandiser sliders or the active campaign
-preset (substitute real numbers server-side; the stock-gate condition syntax
-must be verified against the score-boosting docs). Facet filters (category,
+The numeric weights (0.35, 0.20, 0.25, -10.0 above) come from the merchandiser
+sliders or the active campaign preset, substituted server-side into the fixed
+template (verify the stock-gate condition syntax against the search-relevance
+docs). Facet filters (category,
 brand, price range, rating) go in the request's `filter` and are applied during
 HNSW traversal, not post-hoc. The ranked shelf is one Query API request. Facet
 counts may use separate bounded Qdrant facet requests; keep those requests
 visible in the latency panel so "one request" never becomes a hidden claim.
+
+**Empty query (the landing wall):** with no search text, drop the two text
+branches; prefetch is the persona taste vector alone and the formula runs over
+it. The landing wall is already personalized, so the persona switcher works
+before any search is typed.
 
 **Product-page shelves via the Recommend API:**
 - "Similar": recommend, positives = this item, `using: dense`.
@@ -222,21 +228,27 @@ visible in the latency panel so "one request" never becomes a hidden claim.
 - "Shoppers like you also bought": recommend with `strategy: best_score`,
   positives = persona purchase history, negatives = persona returns.
 
-**The formula builder:** presets and sliders map to a small AST: fields
-`{margin_norm, pop_norm, listed_at, price, average_rating, stock}`, ops
-`{sum, mult, exp_decay, condition}`, weights clamped to [-10, 10]. The
-server validates the AST (whitelist walk), translates it to Qdrant formula
-JSON, and the UI shows the result as live code with a before/after diff. Ship
-five campaign presets as fixtures ("Winter High-Margin Push", "New Arrivals
-First", "Clearance Mode", ...), each a named, human-readable AST. Include 10+
-unit-test fixtures covering valid presets, weight clamping, and rejection of
-unknown fields.
+**The formula template:** one fixed server-side formula shape: `$score` plus
+one weighted term per field in `{margin_norm, pop_norm, listed_at, price,
+average_rating, stock}` (freshness via `exp_decay` on `listed_at`, the stock
+gate as a condition term), weights clamped to [-10, 10], default 0. Presets
+and sliders supply weights only; the server clamps them, substitutes them into
+the template, and the UI shows the resulting formula JSON as live code with a
+before/after diff. Ship five campaign presets as fixtures ("Winter High-Margin
+Push", "New Arrivals First", "Clearance Mode", ...), each a named weight-set.
+Unit-test the template: preset weight-sets → expected formula JSON,
+out-of-range weights clamped, unknown weight names rejected.
 
 ## UI (this is a showcase, not an admin panel)
 
 - **Storefront:** full-bleed product wall, instant search-as-you-type, facet
   sidebar with live counts, a latency chip on every shelf ("38 ms · 1 Qdrant
-  request"), smooth FLIP reorder animation when the formula changes.
+  request"; server-reported Qdrant time, not browser roundtrip), smooth FLIP
+  reorder animation when the formula changes.
+- **Score breakdown on hover:** hovering a product card shows that item's
+  formula terms (relevance, margin, popularity, freshness), recomputed
+  client-side from its payload and the active weights. This is the "why is
+  this item first" proof.
 - **Merchandiser desk:** slide-over panel. Sliders (relevance / margin /
   popularity / freshness), the campaign preset picker, and the **formula always
   visible as code** with a before/after diff flash on every change.
@@ -257,7 +269,11 @@ demo that works end to end beats a full-scale ingest with no app around it.
 
 - **Phase 0: access check.** Create the cluster; confirm in the console
   Inference tab which dense + sparse models exist; record choices in `.env`.
-  Gate: a scripted upsert + query with a Cloud Inference `Document` succeeds.
+  Gate: a scripted upsert + query with a Cloud Inference `Document` succeeds,
+  AND embedding the same sentence via local FastEmbed and via Cloud Inference
+  yields cosine similarity ≥ 0.99 — ingest embeds locally while queries embed
+  in-cluster, and a silent model or normalization mismatch here breaks every
+  shelf downstream while every call still succeeds.
 - **Phase 1: schema + smoke ingest.** Collection, indexes, ingest script with
   `--limit`. Gate: 100k items in, hybrid shelf query returns visually sane
   results.
@@ -268,7 +284,7 @@ demo that works end to end beats a full-scale ingest with no app around it.
   overnight) and move on. Phases 3–6 build against whatever is ingested so far.
 - **Phase 3: storefront UI.** Gate: shelf queries look right on the smoke
   corpus; latency chip live.
-- **Phase 4: merchandiser desk + formula builder.** Gate: builder unit tests
+- **Phase 4: merchandiser desk + formula template.** Gate: template unit tests
   pass; the hero preset reorders the shelf end to end.
 - **Phase 5: product pages + Recommend shelves.** Gate: recommend smoke tests.
 - **Phase 6: auto-play.** Gate: 5-minute unattended run, no errors, fallback
@@ -307,8 +323,8 @@ demo that works end to end beats a full-scale ingest with no app around it.
    README, and move on.
 3. **Persona differentiation:** same query, two personas → Spearman rank
    correlation of top 50 < 0.7. Proves the taste branch does something.
-4. **Formula builder suite:** preset fixtures → expected formula JSON;
-   out-of-range weights clamped; unknown fields rejected.
+4. **Formula template suite:** preset weight-sets → expected formula JSON;
+   out-of-range weights clamped; unknown weight names rejected.
 5. **Latency budget:** p95 < 150 ms server-side per shelf at full scale,
    measured from the Vercel region.
 6. **Facet correctness:** counts under an active filter match a scroll-based
@@ -330,6 +346,7 @@ demo that works end to end beats a full-scale ingest with no app around it.
 1. Type "waterproof hiking boots": hybrid results, latency chip, facet counts.
 2. Filter brand + price: one-stage filtering, counts update.
 3. Open the merchandiser desk, drag margin up: shelf reorders, formula diff.
+   Hover the new top card: the margin term now dominates its score breakdown.
 4. Hero: flip on the "Winter High-Margin Push" campaign. The formula updates
    as live code and the shelf reorders in one request.
 5. Switch persona: same query, different shelf.
