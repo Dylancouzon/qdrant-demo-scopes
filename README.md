@@ -35,17 +35,6 @@ Confirm all of these on day one. None are optional for your demo:
 - **Demo 6 only: an Apple Silicon Mac (or NVIDIA GPU machine)**: the page-image
   encoder runs locally for both ingest and query time.
 
-If any of these are missing, stop and ask Dylan (dylan.couzon@qdrant.com) before
-building around the gap.
-
-## House rules (apply to all three scopes)
-
-- Qdrant is a **vector search engine**. Use that exact category in any UI copy,
-  README, code comment, or commit in these projects.
-- The scopes are briefs, not contracts. Agents should make executive decisions
-  when a detail gets in the way of a better demo, document the decision, and keep
-  the Qdrant story intact.
-- The acceptance bar is completion. Agents should work through all phases, run
-  the gates and evals, and deploy or publish as far as access allows.
-- Each scope has a "What NOT to build" section. Respect it: the demos are
-  judged on stage impact and legibility, not feature count.
+If any of these are missing, document the blocker, make any progress that does
+not depend on it, and do not invent a weaker substitute that breaks the demo
+story.

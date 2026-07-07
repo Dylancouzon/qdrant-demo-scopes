@@ -45,8 +45,21 @@ from both a desktop browser and a phone that isn't yours.
 5. Qdrant is the only backend. No queue, no Redis, no Postgres. If you feel you
    need shared state, re-read the Architecture section: Qdrant IS the shared
    state.
-6. If an access item under Prerequisites is missing, stop and ask Dylan
-   (dylan.couzon@qdrant.com) before building around the gap.
+6. If an access item under Prerequisites is missing, document the blocker in the
+   README, make any progress that does not depend on it, and do not invent a
+   weaker substitute that breaks the demo story.
+
+## House rules
+
+- Qdrant is a **vector search engine**. Use that exact category in any UI copy,
+  README, code comment, or commit in this project.
+- This scope is a brief, not a contract. Make executive decisions when a detail
+  gets in the way of a better demo, document the decision, and keep the Qdrant
+  story intact.
+- The acceptance bar is completion. Work through all phases, run the gates and
+  evals, and deploy or publish as far as access allows.
+- Respect the "What NOT to build" section. The demo is judged on stage impact and
+  legibility, not feature count.
 
 ## Prerequisites
 
