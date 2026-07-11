@@ -4,7 +4,7 @@
 
 ## What you are building
 
-A cinematic fashion storefront over 2M+ real products where every shelf is **one
+A clean fashion storefront over 2M+ real products where every shelf is **one
 Qdrant request**: hybrid search (dense + miniCOIL sparse), one-stage faceted
 filters, and a formula query that fuses relevance, popularity, freshness, margin,
 stock, and the shopper's taste vector server-side. Product pages pull "similar"
@@ -35,7 +35,8 @@ end to end.
 2. **Verify request syntax against the linked Qdrant docs before coding each
    query.** This brief pins the architecture; exact field names in the Query API
    evolve. Verified as of 2026-07: formula queries (v1.14+, `$score`,
-   `exp_decay`, `mult`, `sum`), weighted RRF (v1.17+).
+   `exp_decay`, `mult`, `sum`), weighted RRF (v1.17+). Pinned stack (verified
+   2026-07): Qdrant v1.18.2, qdrant-client 1.18.0, fastembed 0.8.0.
    Docs (markdown mirror, fetch these directly):
    - https://skills.qdrant.tech/md/documentation/search/hybrid-queries/
    - https://skills.qdrant.tech/md/documentation/search/search-relevance/
@@ -110,7 +111,9 @@ Commit messages: subject-only, imperative, 5–10 words.
   starting cluster** and scale it up if the full-ingest gate misses RAM or
   latency. The target story is "millions on a modest node," not "stay on the
   smallest node at all costs." Record the final cluster size in the README.
-  Cloud Inference is enabled by default on new clusters.
+  Cloud Inference is enabled by default on new clusters. The app reads
+  `QDRANT_URL` and `QDRANT_API_KEY` from a `.env` file and connects to that
+  cloud-managed instance for both ingest and queries.
 - GitHub write access to `qdrant-labs`; Vercel team membership.
 - Hugging Face account (free) for the dataset download.
 - A machine that can run a multi-hour Python ingest (laptop is fine).
@@ -135,7 +138,10 @@ Commit messages: subject-only, imperative, 5–10 words.
 Source: `McAuley-Lab/Amazon-Reviews-2023` on Hugging Face, config
 `raw_meta_Clothing_Shoes_and_Jewelry` (item metadata, NOT the reviews). Stream
 it; do not download the full dump. Keep items with a non-empty title and at
-least one image URL. Target ≥ 2M items.
+least one image URL. Target ≥ 2M items. The HuggingFace dataset viewer and
+parquet row API do not serve this dataset (it ships a custom Python loader), so
+read it with `datasets.load_dataset(..., streaming=True)` or the McAuley raw
+JSONL, not the row endpoint. Confirmed 2026-07.
 
 Payload per point (precompute normalized fields at ingest so formulas stay simple):
 
@@ -152,6 +158,12 @@ margin_norm   - margin rescaled 0-1
 Handling nulls: `price` is missing for a large share of items. Fill with the
 category median and set `price_estimated: true`. Formulas must never touch a
 null.
+
+Images need no pipeline. The dataset's `m.media-amazon.com` URLs hotlink
+cross-origin, and the CDN resizes on the URL itself: request `..._SL400_.jpg`
+for grid thumbnails and the full-res URL on the product page. Store the base
+image URL in the payload and pick the size per surface at render time.
+Confirmed serving 200 `image/jpeg`, 80-315 ms, as of 2026-07.
 
 Payload indexes: `category` (keyword), `brand` (keyword), `price` (float),
 `average_rating` (float), `margin_norm` (float), `stock` (integer),
@@ -257,7 +269,15 @@ out-of-range weights clamped, unknown weight names rejected.
   the same query (this is the taste-vector proof).
 - **Auto-play:** toggle in the header; runs the scripted loop with pre-written
   captions; ESC exits instantly.
-- Dark, editorial visual design. This page will be projected on stage:
+- **Visual design: a real store, not a tech demo.** Clean and minimal on a
+  light background, mirroring a mainstream fashion retailer (COS / Everlane):
+  large product photography carries the page, restrained neutral type, one
+  accent color, generous whitespace. Ban the tells that read as AI-generated:
+  gradients, glass panels, neon, glowing dark cards, centered gradient hero
+  text. The **merchandiser desk is the one dark surface**, the cockpit: it
+  separates what the shopper sees from the merchandiser's controls and gives
+  the live formula code its natural home. The storefront projects on stage, and
+  a white grid makes the FLIP reorder and score breakdown legible, so
   typography and motion matter as much as latency.
 
 ## Build phases and gates
@@ -355,7 +375,9 @@ demo that works end to end beats a full-scale ingest with no app around it.
 
 ## Publish
 
-- Repo: `qdrant-labs/<pick-a-name>` (public, Apache-2.0). Include README with
+- Repo: `qdrant-labs/demo-ecommerce-search` (public, Apache-2.0). The on-screen
+  store wordmark is a single config constant; default it to a short neutral
+  brand name. Include README with
   demo script, architecture diagram, one-command setup (`uv run ingest`,
   `vercel deploy`), and eval instructions.
 - Vercel: production deployment, env vars documented.
